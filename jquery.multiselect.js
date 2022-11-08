@@ -984,7 +984,6 @@
     $(instance.element).addClass('jqmsLoaded ms-list-'+ instance.listNumber ).data( 'plugin_multiselect-instance', instance );
 
     // add option container
-
     if (  $(this.element).siblings('#ms-list-'+ this.listNumber +'.ms-options-wrap').length<=0) {
         $(instance.element).after('<div id="ms-list-' + instance.listNumber + '" class="ms-options-wrap"><button type="button"><span>None Selected</span></button><div class="ms-options"><ul></ul></div></div>');
     }
@@ -1002,7 +1001,7 @@
     if ($loader_copy.attr("id")){
         $loader_copy.attr("id", $loader_copy.attr("id").replace("-template", ""))
     }
-    optionsList.append($loader_copy);
+    optionsWrap.append($loader_copy);
     //end of the code
 
     // don't show checkbox (add class for css to hide checkboxes)
