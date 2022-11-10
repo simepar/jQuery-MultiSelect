@@ -562,6 +562,8 @@
 
         /* LOAD SELECT OPTIONS */
         loadOptions: function( options, overwrite, updateSelect ) {
+            console.log("options")
+            console.log(options)
             overwrite    = (typeof overwrite == 'boolean') ? overwrite : true;
             updateSelect = (typeof updateSelect == 'boolean') ? updateSelect : true;
 
@@ -965,14 +967,17 @@
 
         // Add option to the custom dom list
         _addOption: function( container, option ) {
+
             var instance = this;
+            // if (instance.options.serverSide){
+            //     option.name = option.title
+            // }
             var optionNameText = $('<div/>').html( option.name ).text();
 
             var thisOption = $('<label/>', {
                 for : 'ms-opt-'+ msOptCounter
             }).html( option.name );
 
-            option.attributes.disabled && thisOption.addClass( "ms-options-gray-color" );
 
             var thisCheckbox = $('<input>', {
                 type : 'checkbox',
@@ -1496,6 +1501,11 @@
         let csrftoken = instance.options.serverSideParameters.csrftoken;
         let params = instance.options.serverSideParameters.params;
 
+        // let dependenceData = {filter_data: {}};
+        //  dependenceData = instance.options.serverSideParameters.params.payload_data_function($(instance.element), dependenceData)
+        //  let data = dependenceData.data
+        // let waitDependences = dependenceData.waitDependences
+
         // Dependences
         params.config_id = $(instance.element).attr('data-id')
         params.dependences_values = {}
@@ -1505,6 +1515,7 @@
         });
 
         let post_data = JSON.stringify(params)
+        // let post_data = JSON.stringify(data)
 
         $.ajax({
             url: url,
@@ -1540,8 +1551,6 @@
                         var divScrollerTop = $(this).scrollTop();
 
                         if (divScrollerTop === scrollerEndPoint && load_more_flag) {
-                            console.log('Load MORE') // remove
-
                             load_more_flag = false;
 
                             var loader = $('<p/>').html(
