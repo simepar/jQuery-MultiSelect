@@ -562,8 +562,6 @@
 
         /* LOAD SELECT OPTIONS */
         loadOptions: function( options, overwrite, updateSelect ) {
-            console.log("options")
-            console.log(options)
             overwrite    = (typeof overwrite == 'boolean') ? overwrite : true;
             updateSelect = (typeof updateSelect == 'boolean') ? updateSelect : true;
 
@@ -1330,7 +1328,11 @@
         }
 
         instance._updateSelectAllText();
-        instance._updatePlaceholderText(groupCounter);
+        if (instance.options.serverSide)
+            instance._updatePlaceholderText(groupCounter);
+        else
+            instance._updatePlaceholderText();
+
 
     });
 
@@ -1487,6 +1489,55 @@
         return counter;
     }
 
+    function formatOptions(data){
+        let result = []
+
+        var groupBy = function(array, k) {
+            return array.reduce(function(acc, cur) {
+                if (cur["group_id"] == k)
+                    (acc[cur["group_id"]] = acc[cur["group_id"]] || []).push(cur);
+                return acc;
+            }, {});
+        };
+
+        data.groups.forEach((group_data, i) => {
+            let group_result_data = {}
+
+            group_result_data['label']=group_data.title;
+            group_result_data['attributes']= {
+                 'data-group-id':group_data.id,
+                 'data-group-counter':group_data.size,
+                  "selectAll":false
+             };
+
+            group_options_result_data = []
+
+            let grouped_options = Object.values(groupBy(data.options, group_data.id))
+            if (grouped_options.length>0) {
+                grouped_options[0].forEach((option, i) => {
+                    group_options_result_data.push(
+                        {
+                            "name": option.title,
+                            "value": option.value,
+                            "checked": false,
+                            "attributes": {
+                                "disabled": false
+                            }
+                        }
+                    )
+                });
+
+            group_result_data['options']=group_options_result_data
+            result.push(group_result_data)
+            }
+        });
+        // const objArr = [ { name: 'Andrew', city: 'London' }, { name: 'Edouard', city: 'Paris' }, { name: 'Nathalie', city: 'London' }, { name: 'Patrick', city: 'London' }, { name: 'Mathieu', city: 'Paris' } ];
+
+
+        return result;
+
+    }
+
     function serverSideGetData(instance, optionsWrap, search){
 
         instance.options.serverSideParameters.params.groupData = instance.options.data;
@@ -1501,10 +1552,10 @@
         let csrftoken = instance.options.serverSideParameters.csrftoken;
         let params = instance.options.serverSideParameters.params;
 
-        // let dependenceData = {filter_data: {}};
-        //  dependenceData = instance.options.serverSideParameters.params.payload_data_function($(instance.element), dependenceData)
-        //  let data = dependenceData.data
-        // let waitDependences = dependenceData.waitDependences
+        let dependenceData = {filter_data: {}};
+         dependenceData = instance.options.serverSideParameters.params.payload_data_function($(instance.element), dependenceData)
+         let data = dependenceData.data
+        let waitDependences = dependenceData.waitDependences
 
         // Dependences
         params.config_id = $(instance.element).attr('data-id')
@@ -1514,9 +1565,10 @@
             params.dependences_values[dependence_config_id] = $('#filter-'+dependence_config_id).val()
         });
 
-        let post_data = JSON.stringify(params)
-        // let post_data = JSON.stringify(data)
-
+        data.page = params.page;
+        data.term = params.search;
+        // let post_data = JSON.stringify(params)
+        let post_data = JSON.stringify(data)
         $.ajax({
             url: url,
             method: "POST",
@@ -1531,7 +1583,9 @@
             success: function(response) {
                 $("#loader-server-side").remove();
                 let update = search ? true : false;
-                instance.loadOptions(response.options, update, true);
+                let option_test = formatOptions(response);
+                // instance.loadOptions(response.options, update, true);
+                instance.loadOptions(option_test, update, true);
 
                 if (search){
                     instance.options.serverSideParameters.search_current_page++;
