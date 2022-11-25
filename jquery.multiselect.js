@@ -49,13 +49,15 @@
             placeholder    : 'Select options', // text to use in dummy input
             search         : 'Search',         // search input placeholder text
             searchNoResult : 'No results',     // search results not found text
-            selectedOptions: ' selected',      // selected suffix text
+            selectedOptions: 'Selected Option',      // selected suffix text
+            selectedOptionsPluralize: 'Selected Options',      // selected suffix text
             selectAll      : 'Select all',     // select all text
             unselectAll    : 'Unselect all',   // unselect all text
             noneSelected   : 'None Selected'   // None selected text
         },
 
         // general options
+        hasAllOptions          : false, // used to keep track of current select all state
         selectAll              : false, // add select all option
         selectGroup            : false, // select entire optgroup
         minHeight              : 200,   // minimum height of option overlay
@@ -84,6 +86,8 @@
             current_page       : 1,                         // keeps the page number to server-side process case
             search_current_page: 1,                         // keeps the page number to server-side process case
             loaderText         : 'Loading more results...', // loader text while the multiselect get the data
+            selectedOptionsId  :[],
+            optionsData        :[],
         },
         data                   : [],                         // used in server-side proccessing to control data flow
         data_temp              : []                          // used in server-side proccessing to control data flow
@@ -187,7 +191,6 @@
         /* LOAD CUSTOM MULTISELECT DOM/ACTIONS */
         load: function() {
             var instance = this;
-
             // make sure this is a select list and not loaded
             if( (instance.element.nodeName != 'SELECT') || $(instance.element).hasClass('jqmsLoaded') ) {
                 return true;
@@ -269,7 +272,7 @@
                         }
                     });
                 }
-            // hide open option lists if escape key pressed
+                // hide open option lists if escape key pressed
             }).on('keydown', function( event ){
                 if( (event.keyCode || event.which) == 27 ) { // esc key
                     $(this).trigger('click.ms-hideopts');
@@ -351,6 +354,7 @@
                 var search = optionsWrap.find('.ms-search input');
 
                 search.on('keyup', function(){
+
                     // ignore keystrokes that don't make a difference
                     if( $(this).data('lastsearch') == $(this).val() ) {
                         return true;
@@ -531,6 +535,8 @@
                 var select = optionsWrap.parent().siblings('.ms-list-'+ instance.listNumber +'.jqmsLoaded');
 
                 // toggle clicked option
+
+
                 select.find('option[value="'+ instance._escapeSelector( $(this).val() ) +'"]').prop(
                     'selected', $(this).is(':checked')
                 ).closest('select').trigger('change');
@@ -564,7 +570,6 @@
         loadOptions: function( options, overwrite, updateSelect ) {
             overwrite    = (typeof overwrite == 'boolean') ? overwrite : true;
             updateSelect = (typeof updateSelect == 'boolean') ? updateSelect : true;
-
             var instance    = this;
             var select      = $(instance.element);
             var optionsList = select.siblings('#ms-list-'+ instance.listNumber +'.ms-options-wrap').find('> .ms-options > ul');
@@ -577,7 +582,6 @@
                     select.find('> *').remove();
                 }
             }
-
             var containers = [];
             for( var key in options ) {
                 // Prevent prototype methods injected into options from being iterated over.
@@ -613,7 +617,6 @@
                         if( thisOption.checked ) {
                             selOption.prop( 'selected', true );
                         }
-
                         select.append( selOption );
                     }
                 }
@@ -652,6 +655,7 @@
                         container.addClass('optgroup');
 
                         if (instance.options.serverSide){
+                            var exist = optGroup.find(" option[value='"+thisOption.value+"']").length > 0;
                             // add custom group attributes
                             if( thisOption.hasOwnProperty('attributes') && Object.keys( thisOption.attributes ).length ) {
                                 container.attr( thisOption.attributes );
@@ -693,7 +697,15 @@
                             continue;
                         }
 
-                        instance._addOption( gContainer, thisGOption );
+                        if (instance.options.serverSide){
+                            var has_option = container.find("input[value="+thisGOption.value+"]").length > 0
+
+                            if (!has_option)
+                                instance._addOption(gContainer, thisGOption);
+                        }
+                        else {
+                            instance._addOption(gContainer, thisGOption);
+                        }
 
                         container.find('> ul').append( gContainer );
 
@@ -734,7 +746,7 @@
                 var chkbx = optionsList.find('.ms-reflow:eq(0) input[type="checkbox"]');
                 if( chkbx.length ) {
                     var checkboxWidth = chkbx.outerWidth();
-                        checkboxWidth = checkboxWidth ? checkboxWidth : 15;
+                    checkboxWidth = checkboxWidth ? checkboxWidth : 15;
 
                     optionsList.find('.ms-reflow label').css(
                         'padding-left',
@@ -834,6 +846,17 @@
 
             // load element
             this.load();
+            updateSelectedListWithBackendData(this)
+        },
+
+        reloadWithFavorite: function() {
+            // remove existing options
+            $(this.element).siblings('#ms-list-'+ this.listNumber +'.ms-options-wrap').remove();
+            $(this.element).removeClass('jqmsLoaded');
+
+            // load element
+            this.load();
+            updateSelectedListWithBackendData(this, true)
         },
 
         // RESET BACK TO DEFAULT VALUES & RELOAD
@@ -874,6 +897,7 @@
             var optionsWrap = $(instance.element).siblings('#ms-list-'+ instance.listNumber +'.ms-options-wrap').find('> .ms-options');
 
             // update un/select all text
+
             optionsWrap.find('.ms-selectall').each(function(){
                 var unselected = $(this).parent().find('li:not(.optgroup,.selected,.ms-hidden)');
 
@@ -904,6 +928,8 @@
             var placeholderTxt = placeholder.find('span');
             var optionsWrap    = select.siblings('#ms-list-'+ instance.listNumber +'.ms-options-wrap').find('> .ms-options');
 
+            selectVals = this.options.serverSide ? this.options.serverSideParameters.optionsData : selectVals;
+
             // if there are disabled options get those values as well
             if( select.find('option:selected:disabled').length ) {
                 selectVals = [];
@@ -914,18 +940,30 @@
 
             // get selected options
             var selOpts = [];
-            for( var key in selectVals ) {
-                // Prevent prototype methods injected into options from being iterated over.
-                if( !selectVals.hasOwnProperty( key ) ) {
-                    continue;
+            if (! instance.options.serverSide){
+                for( var key in selectVals ) {
+                    // Prevent prototype methods injected into options from being iterated over.
+                    if( !selectVals.hasOwnProperty( key ) ) {
+                        continue;
+                    }
+
+                    selOpts.push(
+                        $.trim( select.find('option[value="'+ instance._escapeSelector( selectVals[ key ] ) +'"]').text() )
+                    );
+
+                    if( selOpts.length >= instance.options.maxPlaceholderOpts ) {
+                        break;
+                    }
                 }
-
-                selOpts.push(
-                    $.trim( select.find('option[value="'+ instance._escapeSelector( selectVals[ key ] ) +'"]').text() )
-                );
-
-                if( selOpts.length >= instance.options.maxPlaceholderOpts ) {
-                    break;
+            } else {
+                if (instance.options.serverSideParameters.selectedOptionsId.length <= instance.options.maxPlaceholderOpts){
+                    selectVals.forEach(function (item, index) {
+                        item.options.forEach(function(o, i) {
+                            selOpts.push(o.name)
+                        })
+                    })
+                } else {
+                    selOpts = instance.options.serverSideParameters.selectedOptionsId
                 }
             }
 
@@ -952,13 +990,17 @@
             else if( (placeholderTxt.width() > placeholder.width()) || (selOpts.length != selectVals.length) ) {
                 if (instance.options.serverSide){
                     if (groupCounter > 0){
-                        placeholderTxt.text(groupCounter + instance.options.texts.selectedOptions);
+                        placeholderTxt.text(groupCounter + ' ' + instance.options.texts.selectedOptions);
                     }else{
-                        placeholderTxt.text(selectVals.length + instance.options.texts.selectedOptions);
+                        if (selOpts.length > 1){
+                            placeholderTxt.text(selOpts.length + ' ' + instance.options.texts.selectedOptionsPluralize);
+                        } else {
+                            placeholderTxt.text(selOpts.length + ' ' + instance.options.texts.selectedOptionsPluralize);
+                        }
                     }
                 }
                 else {
-                    placeholderTxt.text(selectVals.length + instance.options.texts.selectedOptions);
+                    placeholderTxt.text(selectVals.length + ' ' + instance.options.texts.selectedOptions);
                 }
             }
         },
@@ -976,6 +1018,8 @@
                 for : 'ms-opt-'+ msOptCounter
             }).html( option.name );
 
+            thisOption.addClass('customized-checkbox customized-checkbox-multiselect');
+            thisOption.append("<span class='customized-checkbox-span'></span>");
 
             var thisCheckbox = $('<input>', {
                 type : 'checkbox',
@@ -1029,320 +1073,369 @@
     //reload and load function overwrited by simepar to allow not delete entire multiselect, only the list options
     // when data is reloaded and add loader inside multiselect
     MultiSelect.prototype.reload = function() {
-         $(this.element).closest('.container-flex-grow').find('.ms-options').remove();
-            $(this.element).removeClass('jqmsLoaded');
-            this.load();
+
+        $(this.element).closest('.container-flex-grow').find('.ms-options').remove();
+        $(this.element).removeClass('jqmsLoaded');
+        updateSelectedListWithBackendData(this)
+        this.load();
+
+    }
+
+    MultiSelect.prototype.appendLoader = function(){
+        var instance = this;
+        var optionsWrap = $(instance.element).siblings('#ms-list-'+ instance.listNumber +'.ms-options-wrap').find('> .ms-options');
+
+        var loader_element = $(instance.options.loader_selector);
+        var $loader_copy = loader_element.clone();
+        if ($loader_copy.attr("id")){
+            $loader_copy.attr("id", $loader_copy.attr("id").replace("-template", ""))
         }
-
-   MultiSelect.prototype.load= function() {
-    var instance = this;
-
-    // make sure this is a select list and not loaded
-    if( (instance.element.nodeName != 'SELECT') || $(instance.element).hasClass('jqmsLoaded') ) {
-        return true;
+        optionsWrap.append($loader_copy);
     }
 
-    // sanity check so we don't double load on a select element
-    $(instance.element).addClass('jqmsLoaded ms-list-'+ instance.listNumber ).data( 'plugin_multiselect-instance', instance );
-
-    // add option container
-    if (  $(this.element).siblings('#ms-list-'+ this.listNumber +'.ms-options-wrap').length<=0) {
-        $(instance.element).after('<div id="ms-list-' + instance.listNumber + '" class="ms-options-wrap"><button type="button"><span>None Selected</span></button><div class="ms-options"><ul></ul></div></div>');
-    }
-    else{
-        $(this.element).siblings('#ms-list-'+ this.listNumber +'.ms-options-wrap').append('<div class="ms-options"><ul></ul></div>');
-    }
-
-    var placeholder = $(instance.element).siblings('#ms-list-'+ instance.listNumber +'.ms-options-wrap').find('> button:first-child');
-    var optionsWrap = $(instance.element).siblings('#ms-list-'+ instance.listNumber +'.ms-options-wrap').find('> .ms-options');
-    var optionsList = optionsWrap.find('> ul');
-
-    //code changed by simepar to allow insert loader inside multiselect
-    var loader_element = $(instance.options.loader_selector);
-    var $loader_copy = loader_element.clone();
-    if ($loader_copy.attr("id")){
-        $loader_copy.attr("id", $loader_copy.attr("id").replace("-template", ""))
-    }
-    optionsWrap.append($loader_copy);
-    //end of the code
-
-    // don't show checkbox (add class for css to hide checkboxes)
-    if( !instance.options.showCheckbox ) {
-        optionsWrap.addClass('hide-checkbox');
-    }
-    else if( instance.options.checkboxAutoFit ) {
-        optionsWrap.addClass('checkbox-autofit');
-    }
-
-    // check if list is disabled
-    if( $(instance.element).prop( 'disabled' ) ) {
-        placeholder.prop( 'disabled', true );
-    }
-
-    // set placeholder maxWidth
-    if( instance.options.maxPlaceholderWidth ) {
-        placeholder.css( 'maxWidth', instance.options.maxPlaceholderWidth );
-    }
-
-    // override with user defined maxHeight
-    if( instance.options.maxHeight ) {
-        var maxHeight = instance.options.maxHeight;
-    }
-    else {
-        // cacl default maxHeight
-        var maxHeight = ($(window).height() - optionsWrap.offset().top + $(window).scrollTop() - 20);
-    }
-
-    // maxHeight cannot be less than options.minHeight
-    maxHeight = maxHeight < instance.options.minHeight ? instance.options.minHeight : maxHeight;
-
-    optionsWrap.css({
-        maxWidth : instance.options.maxWidth,
-        minHeight: instance.options.minHeight,
-        maxHeight: maxHeight,
-    });
-
-    // isolate options scroll
-    // @source: https://github.com/nobleclem/jQuery-IsolatedScroll
-    optionsWrap.on( 'touchmove mousewheel DOMMouseScroll', function ( e ) {
-        if( ($(this).outerHeight() < $(this)[0].scrollHeight) ) {
-            var e0 = e.originalEvent,
-                delta = e0.wheelDelta || -e0.detail;
-
-            if( ($(this).outerHeight() + $(this)[0].scrollTop) > $(this)[0].scrollHeight ) {
-                e.preventDefault();
-                this.scrollTop += ( delta < 0 ? 1 : -1 );
-            }
-        }
-    });
-
-    // hide options menus if click happens off of the list placeholder button
-    $(document).off('click.ms-hideopts').on('click.ms-hideopts', function( event ){
-        if( !$(event.target).closest('.ms-options-wrap').length ) {
-            $('.ms-options-wrap.ms-active > .ms-options').each(function(){
-                $(this).closest('.ms-options-wrap').removeClass('ms-active');
-
-                var listID = $(this).closest('.ms-options-wrap').attr('id');
-
-                var thisInst = $(this).parent().siblings('.'+ listID +'.jqmsLoaded').data('plugin_multiselect-instance');
-
-                // USER CALLBACK
-                if( typeof thisInst.options.onControlClose == 'function' ) {
-                    thisInst.options.onControlClose( thisInst.element );
-                }
-            });
-        }
-    // hide open option lists if escape key pressed
-    }).on('keydown', function( event ){
-        if( (event.keyCode || event.which) == 27 ) { // esc key
-            $(this).trigger('click.ms-hideopts');
-        }
-    });
-
-    // handle pressing enter|space while tabbing through
-    placeholder.on('keydown', function( event ){
-        var code = (event.keyCode || event.which);
-        if( (code == 13) || (code == 32) ) { // enter OR space
-            placeholder.trigger( 'mousedown' );
-        }
-    });
-
-    // disable button action
-    placeholder.on( 'mousedown', function( event ){
-        // ignore if its not a left click
-        if( event.which && (event.which != 1) ) {
+    MultiSelect.prototype.load= function() {
+        var instance = this;
+        instance.options.hasAllOptions = false;
+        // make sure this is a select list and not loaded
+        if( (instance.element.nodeName != 'SELECT') || $(instance.element).hasClass('jqmsLoaded') ) {
             return true;
         }
 
-        // hide other menus before showing this one
-        $('.ms-options-wrap.ms-active').each(function(){
-            if( $(this).siblings( '.'+ $(this).attr('id') +'.jqmsLoaded')[0] != optionsWrap.parent().siblings('.ms-list-'+ instance.listNumber +'.jqmsLoaded')[0] ) {
-                $(this).removeClass('ms-active');
+        // sanity check so we don't double load on a select element
+        $(instance.element).addClass('jqmsLoaded ms-list-'+ instance.listNumber ).data( 'plugin_multiselect-instance', instance );
 
-                var thisInst = $(this).siblings( '.'+ $(this).attr('id') +'.jqmsLoaded').data('plugin_multiselect-instance');
+        // add option container
+        if (  $(this.element).siblings('#ms-list-'+ this.listNumber +'.ms-options-wrap').length<=0) {
+            $(instance.element).after('<div id="ms-list-' + instance.listNumber + '" class="ms-options-wrap"><button type="button"><span>None Selected</span></button><div class="ms-options"><ul></ul></div></div>');
+        }
+        else{
+            $(this.element).siblings('#ms-list-'+ this.listNumber +'.ms-options-wrap').append('<div class="ms-options"><ul></ul></div>');
+        }
 
-                // USER CALLBACK
-                if( typeof thisInst.options.onControlClose == 'function' ) {
-                    thisInst.options.onControlClose( thisInst.element );
+        var placeholder = $(instance.element).siblings('#ms-list-'+ instance.listNumber +'.ms-options-wrap').find('> button:first-child');
+        var optionsWrap = $(instance.element).siblings('#ms-list-'+ instance.listNumber +'.ms-options-wrap').find('> .ms-options');
+        var optionsList = optionsWrap.find('> ul');
+
+        //code changed by simepar to allow insert loader inside multiselect
+        this.appendLoader();
+        //end of the code
+
+        // don't show checkbox (add class for css to hide checkboxes)
+        if( !instance.options.showCheckbox ) {
+            optionsWrap.addClass('hide-checkbox');
+        }
+        else if( instance.options.checkboxAutoFit ) {
+            optionsWrap.addClass('checkbox-autofit');
+        }
+
+        // check if list is disabled
+        if( $(instance.element).prop( 'disabled' ) ) {
+            placeholder.prop( 'disabled', true );
+        }
+
+        // set placeholder maxWidth
+        if( instance.options.maxPlaceholderWidth ) {
+            placeholder.css( 'maxWidth', instance.options.maxPlaceholderWidth );
+        }
+
+        // override with user defined maxHeight
+        if( instance.options.maxHeight ) {
+            var maxHeight = instance.options.maxHeight;
+        }
+        else {
+            // cacl default maxHeight
+            var maxHeight = ($(window).height() - optionsWrap.offset().top + $(window).scrollTop() - 20);
+        }
+
+        // maxHeight cannot be less than options.minHeight
+        maxHeight = maxHeight < instance.options.minHeight ? instance.options.minHeight : maxHeight;
+
+        optionsWrap.css({
+            maxWidth : instance.options.maxWidth,
+            minHeight: instance.options.minHeight,
+            maxHeight: maxHeight,
+        });
+
+        // isolate options scroll
+        // @source: https://github.com/nobleclem/jQuery-IsolatedScroll
+        optionsWrap.on( 'touchmove mousewheel DOMMouseScroll', function ( e ) {
+            if( ($(this).outerHeight() < $(this)[0].scrollHeight) ) {
+                var e0 = e.originalEvent,
+                    delta = e0.wheelDelta || -e0.detail;
+
+                if( ($(this).outerHeight() + $(this)[0].scrollTop) > $(this)[0].scrollHeight ) {
+                    e.preventDefault();
+                    this.scrollTop += ( delta < 0 ? 1 : -1 );
                 }
             }
         });
 
-        // show/hide options
-        optionsWrap.closest('.ms-options-wrap').toggleClass('ms-active');
+        // hide options menus if click happens off of the list placeholder button
+        $(document).off('click.ms-hideopts').on('click.ms-hideopts', function( event ){
+            if( !$(event.target).closest('.ms-options-wrap').length ) {
+                $('.ms-options-wrap.ms-active > .ms-options').each(function(){
+                    $(this).closest('.ms-options-wrap').removeClass('ms-active');
 
-        // recalculate height
-        if( optionsWrap.closest('.ms-options-wrap').hasClass('ms-active') ) {
-            // USER CALLBACK
-            if( typeof instance.options.onControlOpen == 'function' ) {
-                instance.options.onControlOpen( instance.element );
+                    var listID = $(this).closest('.ms-options-wrap').attr('id');
+
+                    var thisInst = $(this).parent().siblings('.'+ listID +'.jqmsLoaded').data('plugin_multiselect-instance');
+
+                    // USER CALLBACK
+                    if( typeof thisInst.options.onControlClose == 'function' ) {
+                        thisInst.options.onControlClose( thisInst.element );
+                    }
+                });
             }
-
-            optionsWrap.css( 'maxHeight', '' );
-
-            // override with user defined maxHeight
-            if( instance.options.maxHeight ) {
-                var maxHeight = instance.options.maxHeight;
+            // hide open option lists if escape key pressed
+        }).on('keydown', function( event ){
+            if( (event.keyCode || event.which) == 27 ) { // esc key
+                $(this).trigger('click.ms-hideopts');
             }
-            else {
-                // cacl default maxHeight
-                var maxHeight = ($(window).height() - optionsWrap.offset().top + $(window).scrollTop() - 20);
+        });
+
+        // handle pressing enter|space while tabbing through
+        placeholder.on('keydown', function( event ){
+            var code = (event.keyCode || event.which);
+            if( (code == 13) || (code == 32) ) { // enter OR space
+                placeholder.trigger( 'mousedown' );
             }
+        });
 
-            if( maxHeight ) {
-                // maxHeight cannot be less than options.minHeight
-                maxHeight = maxHeight < instance.options.minHeight ? instance.options.minHeight : maxHeight;
-
-                optionsWrap.css( 'maxHeight', maxHeight );
-            }
-        }
-        else if( typeof instance.options.onControlClose == 'function' ) {
-            instance.options.onControlClose( instance.element );
-        }
-    }).click(function( event ){ event.preventDefault(); });
-
-    // add placeholder copy
-    if( instance.options.texts.placeholder ) {
-        placeholder.find('span').text( instance.options.texts.placeholder );
-    }
-
-    // add search box
-    if( instance.options.search ) {
-        optionsList.before('<div class="ms-search"><input type="text" value="" placeholder="'+ instance.options.texts.search +'" /></div>');
-        optionsList.after('<div class="no-result-message">' + instance.options.texts.searchNoResult + '</div>');
-
-        var search = optionsWrap.find('.ms-search input');
-
-        search.on('keyup', function(){
-            // ignore keystrokes that don't make a difference
-            if( $(this).data('lastsearch') == $(this).val() ) {
+        // disable button action
+        placeholder.on( 'mousedown', function( event ){
+            // ignore if its not a left click
+            if( event.which && (event.which != 1) ) {
                 return true;
             }
 
-            // pause timeout
-            if( $(this).data('searchTimeout') ) {
-                clearTimeout( $(this).data('searchTimeout') );
-            }
+            // hide other menus before showing this one
+            $('.ms-options-wrap.ms-active').each(function(){
+                if( $(this).siblings( '.'+ $(this).attr('id') +'.jqmsLoaded')[0] != optionsWrap.parent().siblings('.ms-list-'+ instance.listNumber +'.jqmsLoaded')[0] ) {
+                    $(this).removeClass('ms-active');
 
-            var thisSearchElem = $(this);
+                    var thisInst = $(this).siblings( '.'+ $(this).attr('id') +'.jqmsLoaded').data('plugin_multiselect-instance');
 
-            $(this).data('searchTimeout', setTimeout(function(){
-                thisSearchElem.data('lastsearch', thisSearchElem.val() );
+                    // USER CALLBACK
+                    if( typeof thisInst.options.onControlClose == 'function' ) {
+                        thisInst.options.onControlClose( thisInst.element );
+                    }
+                }
+            });
 
+            // show/hide options
+            optionsWrap.closest('.ms-options-wrap').toggleClass('ms-active');
+
+            // recalculate height
+            if( optionsWrap.closest('.ms-options-wrap').hasClass('ms-active') ) {
                 // USER CALLBACK
-                if( typeof instance.options.searchOptions.onSearch == 'function' ) {
-                    instance.options.searchOptions.onSearch( instance.element );
+                if( typeof instance.options.onControlOpen == 'function' ) {
+                    instance.options.onControlOpen( instance.element );
                 }
 
-                // search non optgroup li's
-                var searchString = $.trim( search.val().toLowerCase() );
-                if( searchString ) {
-                    optionsList.find('li[data-search-term*="'+ searchString +'"]:not(.optgroup)').removeClass('ms-hidden');
-                    optionsList.find('li:not([data-search-term*="'+ searchString +'"], .optgroup)').addClass('ms-hidden');
+                optionsWrap.css( 'maxHeight', '' );
+
+                // override with user defined maxHeight
+                if( instance.options.maxHeight ) {
+                    var maxHeight = instance.options.maxHeight;
                 }
                 else {
-                    optionsList.find('.ms-hidden').removeClass('ms-hidden');
+                    // cacl default maxHeight
+                    var maxHeight = ($(window).height() - optionsWrap.offset().top + $(window).scrollTop() - 20);
                 }
 
-                // show/hide optgroups based on if there are items visible within
-                if( !instance.options.searchOptions.showOptGroups ) {
-                    optionsList.find('.optgroup').each(function(){
-                        if( $(this).find('li:not(.ms-hidden)').length ) {
-                            $(this).show();
+                if( maxHeight ) {
+                    // maxHeight cannot be less than options.minHeight
+                    maxHeight = maxHeight < instance.options.minHeight ? instance.options.minHeight : maxHeight;
+
+                    optionsWrap.css( 'maxHeight', maxHeight );
+                }
+            }
+            else if( typeof instance.options.onControlClose == 'function' ) {
+                instance.options.onControlClose( instance.element );
+            }
+        }).click(function( event ){ event.preventDefault(); });
+
+        // add placeholder copy
+        if( instance.options.texts.placeholder ) {
+            placeholder.find('span').text( instance.options.texts.placeholder );
+        }
+
+        // add search box
+        if( instance.options.search ) {
+            optionsList.before('<div class="ms-search"><input type="text" value="" placeholder="'+ instance.options.texts.search +'" /></div>');
+            optionsList.after('<div class="no-result-message">' + instance.options.texts.searchNoResult + '</div>');
+
+            var search = optionsWrap.find('.ms-search input');
+
+            search.on('keyup', function(){
+                // ignore keystrokes that don't make a difference
+                // if( $(this).data('lastsearch') == $(this).val() ) {
+                //     return true;
+                // }
+
+                // pause timeout
+                if( $(this).data('searchTimeout') ) {
+                    clearTimeout( $(this).data('searchTimeout') );
+                }
+
+                var thisSearchElem = $(this);
+
+                $(this).data('searchTimeout', setTimeout(function(){
+                    thisSearchElem.data('lastsearch', thisSearchElem.val() );
+                    if (instance.options.serverSide){
+                        instance.options.hasAllOptions = false
+                        instance.options.serverSideParameters.search_current_page = 1;
+                        serverSideGetData(instance, optionsWrap, $.trim(search.val().toLowerCase()));
+                    } else {
+                        // USER CALLBACK
+                        if (typeof instance.options.searchOptions.onSearch == 'function') {
+                            instance.options.searchOptions.onSearch(instance.element);
                         }
-                        else {
-                            $(this).hide();
+
+                        // search non optgroup li's
+                        var searchString = $.trim(search.val().toLowerCase());
+                        if (searchString) {
+                            optionsList.find('li[data-search-term*="' + searchString + '"]:not(.optgroup)').removeClass('ms-hidden');
+                            optionsList.find('li:not([data-search-term*="' + searchString + '"], .optgroup)').addClass('ms-hidden');
+                        } else {
+                            optionsList.find('.ms-hidden').removeClass('ms-hidden');
                         }
+
+                        // show/hide optgroups based on if there are items visible within
+                        if (!instance.options.searchOptions.showOptGroups) {
+                            optionsList.find('.optgroup').each(function () {
+                                if ($(this).find('li:not(.ms-hidden)').length) {
+                                    $(this).show();
+                                } else {
+                                    $(this).hide();
+                                }
+                            });
+                        }
+
+                        instance._updateSelectAllText();
+                    }
+                }, instance.options.searchOptions.delay ));
+            });
+        }
+
+        // add global select all options
+        if( instance.options.selectAll ) {
+            optionsList.before('<a href="#" class="ms-selectall global">' + instance.options.texts.selectAll + '</a>');
+        }
+
+        // handle select all option
+        optionsWrap.on('click', '.ms-selectall', function( event ){
+            event.preventDefault();
+            instance.updateSelectAll   = false;
+            instance.updatePlaceholder = false;
+            var groupCounter = null
+            var select = optionsWrap.parent().siblings('.ms-list-'+ instance.listNumber +'.jqmsLoaded');
+            var unselect = false;
+
+            if( $(this).hasClass('global') ) {
+                // check if any options are not selected if so then select them
+                if( optionsList.find('li:not(.optgroup, .selected, .ms-hidden) input[type="checkbox"]:not(:disabled)').length ) {
+                    // get unselected vals, mark as selected, return val list
+                    // optionsList.find('li:not(.optgroup, .selected, .ms-hidden) input[type="checkbox"]:not(:disabled)').closest('li').addClass('selected');
+                    // optionsList.find('li.selected input[type="checkbox"]:not(:disabled)').prop( 'checked', true );
+                }
+                // deselect everything
+                else {
+                    unselect = true;
+                    // optionsList.find('li:not(.optgroup, .ms-hidden).selected input[type="checkbox"]:not(:disabled)').closest('li').removeClass('selected');
+                    // optionsList.find('li:not(.optgroup, .ms-hidden, .selected) input[type="checkbox"]:not(:disabled)').prop( 'checked', false );
+                }
+                selectAllOptions(instance, unselect)
+                if (instance.options.serverSide) {
+
+                    serverSideGetData(instance, optionsWrap, null, true, null, unselect);
+                }
+            }
+            else if( $(this).closest('li').hasClass('optgroup') ) {
+                var optgroup = $(this).closest('li.optgroup');
+
+                // check if any selected if so then select them
+                unselectGroup = false
+                if( optgroup.find('li:not(.selected, .ms-hidden) input[type="checkbox"]:not(:disabled)').length ) {
+                    selectServersideGroup(instance, optgroup)
+                    optgroup.find('li:not(.selected, .ms-hidden) input[type="checkbox"]:not(:disabled)').closest('li').addClass('selected');
+                    optgroup.find('li.selected input[type="checkbox"]:not(:disabled)').prop( 'checked', true );
+                    value = true;
+                }
+                // deselect everything
+                else {
+                    unselectGroup = true
+                    unselectServersideGroup(instance,optgroup)
+                    optgroup.find('li:not(.ms-hidden).selected input[type="checkbox"]:not(:disabled)').closest('li').removeClass('selected');
+                    optgroup.find('li:not(.ms-hidden, .selected) input[type="checkbox"]:not(:disabled)').prop( 'checked', false );
+                }
+
+                if (instance.options.serverSide)
+                    serverSideGetData(instance, optionsWrap, null, false, optgroup.data("group-id"), unselectGroup);
+
+                if (instance.options.serverSide){
+                    data = {
+                        'id': parseInt($(optgroup).attr("data-group-id")),
+                        'counter': parseInt($(optgroup).attr("data-group-counter")),
+                        'selectAll': value
+                    }
+                    groupCounter = changeStateSelectData(instance, data, value);
+                }
+            }
+
+            var vals = [];
+            optionsList.find('li.selected input[type="checkbox"]').each(function(){
+                vals.push( $(this).val() );
+            });
+            select.val( vals ).trigger('change');
+
+            instance.updateSelectAll   = true;
+            instance.updatePlaceholder = true;
+
+            // USER CALLBACK
+            if( typeof instance.options.onSelectAll == 'function' ) {
+                instance.options.onSelectAll( instance.element, vals.length );
+            }
+
+            instance._updateSelectAllText();
+            if (instance.options.serverSide)
+                instance._updatePlaceholderText(groupCounter);
+            else
+                instance._updatePlaceholderText();
+
+
+        });
+
+        // add options to wrapper
+        var options = [];
+        $(instance.element).children().each(function(){
+            if( this.nodeName == 'OPTGROUP' ) {
+                var groupOptions = [];
+
+                $(this).children('option').each(function(){
+                    var thisOptionAtts = {};
+                    for( var i = 0; i < instance.options.optionAttributes.length; i++ ) {
+                        var thisOptAttr = instance.options.optionAttributes[ i ];
+
+                        if( $(this).attr( thisOptAttr ) !== undefined ) {
+                            thisOptionAtts[ thisOptAttr ] = $(this).attr( thisOptAttr );
+                        }
+                    }
+
+                    groupOptions.push({
+                        name   : $(this).text(),
+                        value  : $(this).val(),
+                        checked: $(this).prop( 'selected' ),
+                        attributes: thisOptionAtts
                     });
-                }
+                });
 
-                instance._updateSelectAllText();
-            }, instance.options.searchOptions.delay ));
-        });
-    }
-
-    // add global select all options
-    if( instance.options.selectAll ) {
-        optionsList.before('<a href="#" class="ms-selectall global">' + instance.options.texts.selectAll + '</a>');
-    }
-
-    // handle select all option
-    optionsWrap.on('click', '.ms-selectall', function( event ){
-        event.preventDefault();
-
-        instance.updateSelectAll   = false;
-        instance.updatePlaceholder = false;
-
-        var select = optionsWrap.parent().siblings('.ms-list-'+ instance.listNumber +'.jqmsLoaded');
-
-        if( $(this).hasClass('global') ) {
-            // check if any options are not selected if so then select them
-            if( optionsList.find('li:not(.optgroup, .selected, .ms-hidden) input[type="checkbox"]:not(:disabled)').length ) {
-                // get unselected vals, mark as selected, return val list
-                optionsList.find('li:not(.optgroup, .selected, .ms-hidden) input[type="checkbox"]:not(:disabled)').closest('li').addClass('selected');
-                optionsList.find('li.selected input[type="checkbox"]:not(:disabled)').prop( 'checked', true );
+                options.push({
+                    label  : $(this).attr('label'),
+                    options: groupOptions
+                });
             }
-            // deselect everything
-            else {
-                optionsList.find('li:not(.optgroup, .ms-hidden).selected input[type="checkbox"]:not(:disabled)').closest('li').removeClass('selected');
-                optionsList.find('li:not(.optgroup, .ms-hidden, .selected) input[type="checkbox"]:not(:disabled)').prop( 'checked', false );
-            }
-        }
-        else if( $(this).closest('li').hasClass('optgroup') ) {
-            var optgroup = $(this).closest('li.optgroup');
-
-            // check if any selected if so then select them
-            if( optgroup.find('li:not(.selected, .ms-hidden) input[type="checkbox"]:not(:disabled)').length ) {
-                optgroup.find('li:not(.selected, .ms-hidden) input[type="checkbox"]:not(:disabled)').closest('li').addClass('selected');
-                optgroup.find('li.selected input[type="checkbox"]:not(:disabled)').prop( 'checked', true );
-                value = true;
-            }
-            // deselect everything
-            else {
-                optgroup.find('li:not(.ms-hidden).selected input[type="checkbox"]:not(:disabled)').closest('li').removeClass('selected');
-                optgroup.find('li:not(.ms-hidden, .selected) input[type="checkbox"]:not(:disabled)').prop( 'checked', false );
-            }
-
-            if (instance.options.serverSide){
-                data = {
-                    'id': parseInt($(optgroup).attr("data-group-id")),
-                    'counter': parseInt($(optgroup).attr("data-group-counter")),
-                    'selectAll': value
-                }
-                groupCounter = changeStateSelectData(instance, data, value);
-            }
-        }
-
-        var vals = [];
-        optionsList.find('li.selected input[type="checkbox"]').each(function(){
-            vals.push( $(this).val() );
-        });
-        select.val( vals ).trigger('change');
-
-        instance.updateSelectAll   = true;
-        instance.updatePlaceholder = true;
-
-        // USER CALLBACK
-        if( typeof instance.options.onSelectAll == 'function' ) {
-            instance.options.onSelectAll( instance.element, vals.length );
-        }
-
-        instance._updateSelectAllText();
-        if (instance.options.serverSide)
-            instance._updatePlaceholderText(groupCounter);
-        else
-            instance._updatePlaceholderText();
-
-
-    });
-
-    // add options to wrapper
-    var options = [];
-    $(instance.element).children().each(function(){
-        if( this.nodeName == 'OPTGROUP' ) {
-            var groupOptions = [];
-
-            $(this).children('option').each(function(){
+            else if( this.nodeName == 'OPTION' ) {
                 var thisOptionAtts = {};
                 for( var i = 0; i < instance.options.optionAttributes.length; i++ ) {
                     var thisOptAttr = instance.options.optionAttributes[ i ];
@@ -1352,115 +1445,95 @@
                     }
                 }
 
-                groupOptions.push({
-                    name   : $(this).text(),
-                    value  : $(this).val(),
-                    checked: $(this).prop( 'selected' ),
+                options.push({
+                    name      : $(this).text(),
+                    value     : $(this).val(),
+                    checked   : $(this).prop( 'selected' ),
                     attributes: thisOptionAtts
                 });
-            });
+            }
+            else {
+                // bad option
+                return true;
+            }
+        });
+        instance.loadOptions( options, true, false );
 
-            options.push({
-                label  : $(this).attr('label'),
-                options: groupOptions
-            });
-        }
-        else if( this.nodeName == 'OPTION' ) {
-            var thisOptionAtts = {};
-            for( var i = 0; i < instance.options.optionAttributes.length; i++ ) {
-                var thisOptAttr = instance.options.optionAttributes[ i ];
+        // BIND SELECT ACTION
+        optionsWrap.on( 'click', 'input[type="checkbox"]', function(){
+            $(this).closest( 'li' ).toggleClass( 'selected' );
 
-                if( $(this).attr( thisOptAttr ) !== undefined ) {
-                    thisOptionAtts[ thisOptAttr ] = $(this).attr( thisOptAttr );
-                }
+            var select = optionsWrap.parent().siblings('.ms-list-'+ instance.listNumber +'.jqmsLoaded');
+
+            // toggle clicked option
+            select.find('option[value="'+ instance._escapeSelector( $(this).val() ) +'"]').prop(
+                'selected', $(this).is(':checked')
+            ).closest('select').trigger('change');
+
+            // USER CALLBACK
+            if( typeof instance.options.onOptionClick == 'function' ) {
+                instance.options.onOptionClick(instance.element, this);
             }
 
-            options.push({
-                name      : $(this).text(),
-                value     : $(this).val(),
-                checked   : $(this).prop( 'selected' ),
-                attributes: thisOptionAtts
-            });
-        }
-        else {
-            // bad option
-            return true;
-        }
-    });
-    instance.loadOptions( options, true, false );
+            instance._updateSelectAllText();
+            instance._updatePlaceholderText();
+            if (instance.options.serverSide){
+                toggleServersideOption(instance, $(this))
+            }
+        });
 
-    // BIND SELECT ACTION
-    optionsWrap.on( 'click', 'input[type="checkbox"]', function(){
-        $(this).closest( 'li' ).toggleClass( 'selected' );
-
-        var select = optionsWrap.parent().siblings('.ms-list-'+ instance.listNumber +'.jqmsLoaded');
-
-        // toggle clicked option
-        select.find('option[value="'+ instance._escapeSelector( $(this).val() ) +'"]').prop(
-            'selected', $(this).is(':checked')
-        ).closest('select').trigger('change');
+        // BIND FOCUS EVENT
+        optionsWrap.on('focusin', 'input[type="checkbox"]', function(){
+            $(this).closest('label').addClass('focused');
+        }).on('focusout', 'input[type="checkbox"]', function(){
+            $(this).closest('label').removeClass('focused');
+        });
 
         // USER CALLBACK
-        if( typeof instance.options.onOptionClick == 'function' ) {
-            instance.options.onOptionClick(instance.element, this);
+        if( typeof instance.options.onLoad === 'function' ) {
+            instance.options.onLoad( instance.element );
         }
 
-        instance._updateSelectAllText();
-        instance._updatePlaceholderText();
-    });
-
-    // BIND FOCUS EVENT
-    optionsWrap.on('focusin', 'input[type="checkbox"]', function(){
-        $(this).closest('label').addClass('focused');
-    }).on('focusout', 'input[type="checkbox"]', function(){
-        $(this).closest('label').removeClass('focused');
-    });
-
-    // USER CALLBACK
-    if( typeof instance.options.onLoad === 'function' ) {
-        instance.options.onLoad( instance.element );
-    }
-
-    // hide native select list
-    $(instance.element).hide();
-   if (instance.options.serverSide) {
-       instance.options.serverSideParameters.current_page = 1;
-       serverSideGetData(instance, optionsWrap);
-   }
-},
-    // ENABLE JQUERY PLUGIN FUNCTION
-    $.fn.multiselect = function( options ){
-        if( !this.length ) {
-            return;
+        // hide native select list
+        $(instance.element).hide();
+        if (instance.options.serverSide) {
+            instance.options.serverSideParameters.current_page = 1;
+            serverSideGetData(instance, optionsWrap);
         }
+    },
+        // ENABLE JQUERY PLUGIN FUNCTION
+        $.fn.multiselect = function( options ){
+            if( !this.length ) {
+                return;
+            }
 
-        var args = arguments;
-        var ret;
+            var args = arguments;
+            var ret;
 
-        // menuize each list
-        if( (options === undefined) || (typeof options === 'object') ) {
-            return this.each(function(){
-                if( !$.data( this, 'plugin_multiselect' ) ) {
-                    $.data( this, 'plugin_multiselect', new MultiSelect( this, options ) );
-                }
-            });
-        } else if( (typeof options === 'string') && (options[0] !== '_') && (options !== 'init') ) {
-            this.each(function(){
-                var instance = $.data( this, 'plugin_multiselect' );
+            // menuize each list
+            if( (options === undefined) || (typeof options === 'object') ) {
+                return this.each(function(){
+                    if( !$.data( this, 'plugin_multiselect' ) ) {
+                        $.data( this, 'plugin_multiselect', new MultiSelect( this, options ) );
+                    }
+                });
+            } else if( (typeof options === 'string') && (options[0] !== '_') && (options !== 'init') ) {
+                this.each(function(){
+                    var instance = $.data( this, 'plugin_multiselect' );
 
-                if( instance instanceof MultiSelect && typeof instance[ options ] === 'function' ) {
-                    ret = instance[ options ].apply( instance, Array.prototype.slice.call( args, 1 ) );
-                }
+                    if( instance instanceof MultiSelect && typeof instance[ options ] === 'function' ) {
+                        ret = instance[ options ].apply( instance, Array.prototype.slice.call( args, 1 ) );
+                    }
 
-                // special destruct handler
-                if( options === 'unload' ) {
-                    $.data( this, 'plugin_multiselect', null );
-                }
-            });
+                    // special destruct handler
+                    if( options === 'unload' ) {
+                        $.data( this, 'plugin_multiselect', null );
+                    }
+                });
 
-            return ret;
-        }
-    };
+                return ret;
+            }
+        };
 
     /**
      * To manipulate new and existing data
@@ -1484,7 +1557,7 @@
         }
         let counter = 0;
         instance.options.data.map(function(item) {
-                if (item.selectAll){ counter += item['data-group-counter']; }
+            if (item.selectAll){ counter += item['data-group-counter']; }
         });
         return counter;
     }
@@ -1505,129 +1578,480 @@
 
             group_result_data['label']=group_data.title;
             group_result_data['attributes']= {
-                 'data-group-id':group_data.id,
-                 'data-group-counter':group_data.size,
-                  "selectAll":false
-             };
+                'data-group-id':group_data.id,
+                'data-group-counter':group_data.size,
+                "selectAll":false
+            };
 
             group_options_result_data = []
 
             let grouped_options = Object.values(groupBy(data.options, group_data.id))
             if (grouped_options.length>0) {
-                grouped_options[0].forEach((option, i) => {
+                grouped_options[0].forEach((option, i) => {var attributes = {}
+                    if (option.disabled == 'disabled')
+                        attributes['disabled'] = true;
+
                     group_options_result_data.push(
                         {
                             "name": option.title,
                             "value": option.value,
                             "checked": false,
-                            "attributes": {
-                                "disabled": false
-                            }
+                            "attributes":attributes,
                         }
                     )
                 });
 
-            group_result_data['options']=group_options_result_data
-            result.push(group_result_data)
+                group_result_data['options']=group_options_result_data
+                result.push(group_result_data)
             }
         });
-        // const objArr = [ { name: 'Andrew', city: 'London' }, { name: 'Edouard', city: 'Paris' }, { name: 'Nathalie', city: 'London' }, { name: 'Patrick', city: 'London' }, { name: 'Mathieu', city: 'Paris' } ];
 
 
         return result;
 
     }
 
-    function serverSideGetData(instance, optionsWrap, search){
+    function selectGroupAllOptions(instance, groupId, unselectGroup) {
+        instance.updateSelectAll   = false;
+        instance.updatePlaceholder = false;
+        var optionsWrap = $(instance.element).siblings('#ms-list-'+ instance.listNumber +'.ms-options-wrap').find('> .ms-options');
+        var optionsList = optionsWrap.find('> ul');
+        var groupCounter = null
+        var select = optionsWrap.parent().siblings('.ms-list-'+ instance.listNumber +'.jqmsLoaded');
 
-        instance.options.serverSideParameters.params.groupData = instance.options.data;
-        if (search){
-            instance.options.serverSideParameters.params.search = search;
-            instance.options.serverSideParameters.params.page = instance.options.serverSideParameters.search_current_page;
-        } else {
-            instance.options.serverSideParameters.params.page = instance.options.serverSideParameters.current_page;
+        var optgroup =$('li[data-group-id="'+groupId+'"]');
+        // check if any selected if so then select them
+        if(!unselectGroup) {
+            selectServersideGroup(instance, optgroup)
+            optgroup.find('li:not(.selected, .ms-hidden) input[type="checkbox"]:not(:disabled)').closest('li').addClass('selected');
+            optgroup.find('li.selected input[type="checkbox"]:not(:disabled)').prop( 'checked', true );
+            value = true;
+        }
+        // deselect everything
+        else {
+            unselectServersideGroup(instance, optgroup)
+            optgroup.find('li:not(.ms-hidden).selected input[type="checkbox"]:not(:disabled)').closest('li').removeClass('selected');
+            optgroup.find('li:not(.ms-hidden, .selected) input[type="checkbox"]:not(:disabled)').prop( 'checked', false );
+        }
+        if (instance.options.serverSide){
+            data = {
+                'id': parseInt($(optgroup).attr("data-group-id")),
+                'counter': parseInt($(optgroup).attr("data-group-counter")),
+                'selectAll': value
+            }
+            groupCounter = changeStateSelectData(instance, data, value);
         }
 
-        let url = instance.options.serverSideParameters.url;
-        let csrftoken = instance.options.serverSideParameters.csrftoken;
-        let params = instance.options.serverSideParameters.params;
 
-        let dependenceData = {filter_data: {}};
-         dependenceData = instance.options.serverSideParameters.params.payload_data_function($(instance.element), dependenceData)
-         let data = dependenceData.data
-        let waitDependences = dependenceData.waitDependences
-
-        // Dependences
-        params.config_id = $(instance.element).attr('data-id')
-        params.dependences_values = {}
-
-        $(instance.element).attr('dependences').split(',').forEach((dependence_config_id, i) => {
-            params.dependences_values[dependence_config_id] = $('#filter-'+dependence_config_id).val()
+        var vals = [];
+        optionsList.find('li.selected input[type="checkbox"]').each(function(){
+            vals.push( $(this).val() );
         });
+        select.val( vals ).trigger('change');
 
-        data.page = params.page;
-        data.term = params.search;
-        // let post_data = JSON.stringify(params)
-        let post_data = JSON.stringify(data)
-        $.ajax({
-            url: url,
-            method: "POST",
-            data: post_data,
-            async: false,
-            contentType: "application/json",
-            beforeSend: function (xhr, settings) {
-                if (csrftoken != null) {
-                    xhr.setRequestHeader("X-CSRFToken", csrftoken);
-                }
+        instance.updateSelectAll   = true;
+        instance.updatePlaceholder = true;
+
+        // USER CALLBACK
+        if( typeof instance.options.onSelectAll == 'function' ) {
+            instance.options.onSelectAll( instance.element, vals.length );
+        }
+
+        instance._updateSelectAllText();
+        if (instance.options.serverSide)
+            instance._updatePlaceholderText(groupCounter);
+        else
+            instance._updatePlaceholderText();
+
+    }
+
+
+    function selectAllOptions(instance, unselect){
+        var optionsWrap = $(instance.element).siblings('#ms-list-'+ instance.listNumber +'.ms-options-wrap').find('> .ms-options');
+        var optionsList = optionsWrap.find('> ul');
+        event.preventDefault();
+        instance.updateSelectAll   = false;
+        instance.updatePlaceholder = false;
+        var groupCounter = null
+        var select = optionsWrap.parent().siblings('.ms-list-'+ instance.listNumber +'.jqmsLoaded');
+
+
+        // check if any options are not selected if so then select them
+        if(!unselect) {
+            // get unselected vals, mark as selected, return val list
+            if (instance.options.serverSide) selectServersideAllOptions(instance, optionsList)
+            optionsList.find('li:not(.optgroup, .selected, .ms-hidden) input[type="checkbox"]:not(:disabled)').closest('li').addClass('selected');
+            optionsList.find('li.selected input[type="checkbox"]:not(:disabled)').prop( 'checked', true );
+        }
+        // deselect everything
+        else {
+            if (instance.options.serverSide) unselectServersideAllOptions(instance, optionsList)
+            optionsList.find('li:not(.optgroup, .ms-hidden).selected input[type="checkbox"]:not(:disabled)').closest('li').removeClass('selected');
+            optionsList.find('li:not(.optgroup, .ms-hidden, .selected) input[type="checkbox"]:not(:disabled)').prop( 'checked', false );
+        }
+
+        var vals = [];
+        optionsList.find('li.selected input[type="checkbox"]').each(function(){
+            vals.push( $(this).val() );
+        });
+        select.val( vals ).trigger('change');
+
+        instance.updateSelectAll   = true;
+        instance.updatePlaceholder = true;
+
+        // USER CALLBACK
+        if( typeof instance.options.onSelectAll == 'function' ) {
+            instance.options.onSelectAll( instance.element, vals.length );
+        }
+
+        instance._updateSelectAllText();
+        if (instance.options.serverSide)
+            instance._updatePlaceholderText(groupCounter);
+        else
+            instance._updatePlaceholderText();
+
+
+    }
+
+
+    function toggleServersideOption(instance, option){
+        id = option.attr("value")
+        const index = instance.options.serverSideParameters.selectedOptionsId.indexOf(id);
+
+
+        if (index === -1) {
+            selectServersideOption(instance, option);
+        }else{
+            unselectServersideOption(instance, option);
+        }
+
+        instance._updatePlaceholderText();
+    }
+
+
+    function insertRetrievedDataSelected(instance, option){
+        let optionData = {
+            "name":option.attr("title"),
+            "value":option.attr("value"),
+            "checked": option.closest('li:not(.optgroup, .ms-hidden)').hasClass("selected"),
+            "attributes":{
+                "disabled": option.attr('disabled') ? "disabled" : false,
             },
-            success: function(response) {
-                $("#loader-server-side").remove();
-                let update = search ? true : false;
-                let option_test = formatOptions(response);
-                // instance.loadOptions(response.options, update, true);
-                instance.loadOptions(option_test, update, true);
+        }
+        var groupElement =option.closest('li.optgroup')
 
-                if (search){
-                    instance.options.serverSideParameters.search_current_page++;
-                } else{
-                    instance.options.serverSideParameters.current_page++;
+        let groupData = {
+            "label":groupElement.find("> span.label").text(),
+            "attributes":{
+                "data-group-id":groupElement.attr("data-group-id"),
+                "data-group-counter":groupElement.attr("data-group-counter"),
+                "selectAll":groupElement.attr("selectall")
+            },
+            "options":[optionData]
+
+
+        }
+        has_group = false
+
+        $.each(instance.options.serverSideParameters.optionsData, function(index, element) {
+            if (element['label']==groupData['label']) {
+                has_group = true
+                if (!(element.options.filter(e => e.value === optionData.value).length > 0)) {
+                    instance.options.serverSideParameters.optionsData[index].options.push(optionData)
                 }
 
-                var load_more_flag = true; // to avoid multiple loadings at the same time
-
-                $(optionsWrap).scroll(function () {
-                    let more = response.results_per_page <= response.current_page_length
-
-                    if (more === true) {
-                        var scrollHeight = $(this).prop('scrollHeight');
-                        var divHeight = $(this).height();
-                        var scrollerEndPoint = scrollHeight - divHeight;
-                        var divScrollerTop = $(this).scrollTop();
-
-                        if (divScrollerTop === scrollerEndPoint && load_more_flag) {
-                            load_more_flag = false;
-
-                            var loader = $('<p/>').html(
-                                instance.options.serverSideParameters.loaderText)
-                                .addClass("ms-options-gray-color")
-                                .prop("id", "loader-server-side")
-                                .css("margin-left", "5px");
-
-                            if (!$("#loader-server-side").length) { $(optionsWrap).append(loader); }
-                            setTimeout(function(){
-                                serverSideGetData(instance, optionsWrap);
-                            }, 500);
-                        }
-                    } else {
-                        $(optionsWrap).off('scroll');
-                    }
-                });
-
-                $("#loader-server-side").remove();
-            },
-            error: function(xhr) {
-                //Do Something to handle error
             }
         });
+
+        if (!has_group){
+            instance.options.serverSideParameters.optionsData.push(groupData)
+        }
+
+        // console.log("has instance.options.serverSideParameters.optionsData")
+        // console.log(JSON.stringify( instance.options.serverSideParameters.optionsData, null, 2))
+    }
+
+    function removeRetrievedDataSelected(instance, option){
+        let optionData = {
+            "name":option.attr("title"),
+            "value":option.attr("value"),
+            "checked": option.closest('li:not(.optgroup, .ms-hidden)').hasClass("selected"),
+            "attributes":{
+                "disabled": option.attr('disabled') ? "disabled" : false,
+            },
+        }
+        var groupElement =option.closest('li.optgroup')
+
+        let groupData = {
+            "label":groupElement.find("> span.label").text(),
+            "attributes":{
+                "data-group-id":groupElement.attr("data-group-id"),
+                "data-group-counter":groupElement.attr("data-group-counter"),
+                "selectAll":groupElement.attr("selectall")
+            },
+            "options":[optionData]
+
+
+        }
+
+        $.each(instance.options.serverSideParameters.optionsData, function(index, element) {
+            if (element['label']==groupData['label']) {
+                has_group = true
+                if ((element.options.filter(e => e.value === optionData.value).length > 0)) {
+                    let index_option = null;
+                    instance.options.serverSideParameters.optionsData[index].options.map(function(item, i){
+                        if (item.value == optionData.value) index_option = i
+                    })
+
+                    if (index_option!=null)
+                        instance.options.serverSideParameters.optionsData[index].options.splice(index_option, 1)
+                }
+
+            }
+        });
+
+
+        // console.log("instance.options.serverSideParameters.optionsData")
+        // console.log(JSON.stringify( instance.options.serverSideParameters.optionsData, null, 2))
+    }
+
+
+    function selectServersideOption(instance, option){
+        insertRetrievedDataSelected(instance, option)
+        var value = null
+        if ($.isNumeric(option))
+            value = option;
+        else
+            value =option.attr("value")
+        const index = instance.options.serverSideParameters.selectedOptionsId.indexOf(value);
+        if (index === -1) {
+            instance.options.serverSideParameters.selectedOptionsId.push(value);
+        }
+    }
+
+    function unselectServersideOption(instance, option){
+        removeRetrievedDataSelected(instance, option)
+        var value = null
+        if ($.isNumeric(option))
+            value = option;
+        else
+            value =option.attr("value")
+        const index = instance.options.serverSideParameters.selectedOptionsId.indexOf(value);
+        if (index > -1) {
+            instance.options.serverSideParameters.selectedOptionsId.splice(index, 1);
+        }
+    }
+
+    function selectServersideAllOptions(instance, optionsList){
+        optionsList.find('li:not(.optgroup, .selected, .ms-hidden) input[type="checkbox"]:not(:disabled)').each(function() {
+            selectServersideOption(instance,$(this))
+        });
+
+    }
+    function unselectServersideAllOptions(instance, optionsList){
+        optionsList.find('li:not(.optgroup, .ms-hidden).selected input[type="checkbox"]:not(:disabled)').each(function() {
+            unselectServersideOption(instance,$(this))
+        });
+
+    }
+
+    function selectServersideGroup(instance, optgroup){
+        optgroup.find('li:not(.selected, .ms-hidden) input[type="checkbox"]:not(:disabled)').each(function() {
+            selectServersideOption(instance,$(this))
+        });
+
+    }
+    function unselectServersideGroup(instance, optgroup){
+        optgroup.find('li:not(.ms-hidden).selected input[type="checkbox"]:not(:disabled)').each(function() {
+            unselectServersideOption(instance,$(this))
+        });
+
+    }
+    function updateInputsWithSelectedData(instance){
+        var optionsWrap = $(instance.element).siblings('#ms-list-'+ instance.listNumber +'.ms-options-wrap').find('> .ms-options');
+        unselectList = []
+        $.each(instance.options.serverSideParameters.selectedOptionsId, function(index, element) {
+            let optionInput = $(instance.element).siblings('#ms-list-'+ instance.listNumber +'.ms-options-wrap').find('input[type="checkbox"][value="'+element+'"]')
+            if (optionInput.length > 0) {
+                if (optionInput.attr("disabled")=="disabled"){
+                    unselectList.push(optionInput)
+                }
+                else {
+                    optionInput.prop("checked", true);
+                    optionInput.closest('li').addClass('selected');
+                    var select = optionsWrap.parent().siblings('.ms-list-' + instance.listNumber + '.jqmsLoaded');
+                    select.find('option[value="' + instance._escapeSelector(optionInput.val()) + '"]').prop(
+                        'selected', optionInput.is(':checked')
+                    ).closest('select').trigger('change');
+                }
+            }
+
+        });
+        // need to unselect outside the foreach above to prevent change array while foreach iterate through it
+        $.each(unselectList, function(index, element) {
+            unselectServersideOption(instance, element)
+        });
+         instance._updatePlaceholderText();
+         validatePayload();
+    }
+
+    function updateSelectedListWithBackendData(instance, useFavorite = false){
+         var optionsWrap = $(instance.element).siblings('#ms-list-'+ instance.listNumber +'.ms-options-wrap').find('> .ms-options');
+        if (useFavorite){
+             serverSideGetData(instance, optionsWrap, null, false, null, false, instance.options.serverSideParameters.selectedOptionsId, useFavorite)
+        }
+        else if (instance.options.serverSideParameters.selectedOptionsId.length > 0){
+            serverSideGetData(instance, optionsWrap, null, false, null, false, instance.options.serverSideParameters.selectedOptionsId, false)
+        }
+
+    }
+
+    function serverSideGetData(instance, optionsWrap, search, retrieve_all_data = false, group_id = null, unselect = false, selectedDataToUpdate, useFavorite = false){
+        var overwrite = false;
+        if (search || (search == '')) {
+            if (instance.options.serverSideParameters.params.search != search){
+                instance.options.serverSideParameters.params.search = search
+                instance.options.serverSideParameters.search_current_page=1;
+                instance.options.serverSideParameters.current_page=1;
+                overwrite = true;
+            }
+        }
+
+        if (!instance.options.hasAllOptions) {
+            $(instance.element).data("loading", true);
+            startLoader("#loader-" + $(instance.element).attr("id"));
+            instance.options.serverSideParameters.params.groupData = instance.options.data;
+            if (search) {
+                instance.options.serverSideParameters.params.search = search;
+                instance.options.serverSideParameters.params.page = instance.options.serverSideParameters.search_current_page;
+            } else {
+                instance.options.serverSideParameters.params.page = instance.options.serverSideParameters.current_page;
+            }
+
+            let url = instance.options.serverSideParameters.url;
+            let csrftoken = instance.options.serverSideParameters.csrftoken;
+            let params = instance.options.serverSideParameters.params;
+
+            let dependenceData = {filter_data: {}};
+            dependenceData = instance.options.serverSideParameters.params.payload_data_function($(instance.element), dependenceData)
+            let data = dependenceData.data
+            let waitDependences = dependenceData.waitDependences
+
+            // Dependences
+            params.config_id = $(instance.element).attr('data-id')
+            params.dependences_values = {}
+
+            $(instance.element).attr('dependences').split(',').forEach((dependence_config_id, i) => {
+                params.dependences_values[dependence_config_id] = $('#filter-' + dependence_config_id).val()
+            });
+
+            if (group_id != null)
+                data.group_id = group_id;
+
+            if (!retrieve_all_data && (!search) ){
+                data.page = params.page;
+            }
+            else
+                data.page = -1;
+
+            if (selectedDataToUpdate)
+                data.old_selected_data = selectedDataToUpdate;
+
+            if (useFavorite){
+                select = optionsWrap.parent().siblings('.ms-list-'+ instance.listNumber +'.jqmsLoaded');
+                data.favorite_id = parseInt(select.attr('favorite'));
+            }
+
+            data.term = params.search;
+            // let post_data = JSON.stringify(params)
+            let post_data = JSON.stringify(data)
+            $.ajax({
+                url: url,
+                method: "POST",
+                data: post_data,
+                async: true,
+                contentType: "application/json",
+                beforeSend: function (xhr, settings) {
+                    if (csrftoken != null) {
+                        xhr.setRequestHeader("X-CSRFToken", csrftoken);
+                    }
+                },
+                success: function (response) {
+                    if (selectedDataToUpdate){
+                        instance.options.serverSideParameters.selectedOptionsId = response.options
+
+                        updateInputsWithSelectedData(instance)
+                    }
+                    else {
+                        if (retrieve_all_data && !search)
+                            instance.options.hasAllOptions = true;
+                        $("#loader-server-side").remove();
+                        // let update = search ? true : false;
+                        let option_test = formatOptions(response);
+                        instance.loadOptions(option_test, overwrite, true);
+                        if (response.options.length > response.results_per_page) {
+                            let sum_pages = Math.floor(response.options.length / response.results_per_page)
+                            instance.options.serverSideParameters.current_page = instance.options.serverSideParameters.current_page + sum_pages
+                        } else {
+                            if (search) {
+                                hasAllOptions = true;
+                                instance.options.serverSideParameters.search_current_page++;
+                            } else {
+                                instance.options.serverSideParameters.current_page++;
+                            }
+                        }
+                        var load_more_flag = true; // to avoid multiple loadings at the same time
+                        $(optionsWrap).scroll(function () {
+                            let more = false
+                            if (group_id != null)
+                                more = true
+                            else {
+                                more = response.results_per_page <= response.options.length
+                                more = response.options.length > 0
+                            }
+
+                            if (more === true) {
+                                if (!instance.options.hasAllOptions) {
+                                    var scrollHeight = $(this).prop('scrollHeight');
+                                    var divHeight = $(this).height();
+                                    var scrollerEndPoint = scrollHeight - divHeight;
+                                    var margin = 5 / 100 * scrollerEndPoint
+                                    var divScrollerTop = $(this).scrollTop();
+                                    if (divScrollerTop > (scrollerEndPoint - margin) && load_more_flag) {
+                                        load_more_flag = false;
+                                        var loader = $('<p/>').html(
+                                            instance.options.serverSideParameters.loaderText)
+                                            .addClass("ms-options-gray-color")
+                                            .prop("id", "loader-server-side")
+                                            .css("margin-left", "5px");
+                                        if (!$("#loader-server-side").length) {
+                                            $(optionsWrap).append(loader);
+                                        }
+                                        setTimeout(function () {
+                                            serverSideGetData(instance, optionsWrap);
+                                        }, 500);
+                                    }
+                                }
+                            } else {
+                                $(optionsWrap).off('scroll');
+                            }
+                        });
+
+                        $("#loader-server-side").remove();
+                        if (retrieve_all_data)
+                            selectAllOptions(instance, unselect)
+                        if (group_id != null)
+                            selectGroupAllOptions(instance, group_id, unselect)
+
+                        updateInputsWithSelectedData(instance)
+                        $(instance.element).data("loading", false);
+                        stopLoader("#loader-" + $(instance.element).attr("id"));
+                    }
+                },
+                error: function (xhr) {
+                    //Do Something to handle error
+                }
+            });
+        }
     }
 }(jQuery));
